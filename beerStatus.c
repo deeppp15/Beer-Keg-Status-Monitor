@@ -37,8 +37,8 @@ static bool handleUnsafeOperations();
 static double readGPIO(int32_t gpio_number, int32_t);
 static int32_t promptUserForkegWeight(double * kegWeight);
 static double convertToPercentage();
-// shared variables
 
+// structs placed in global scope for eventual cleanup
 static struct device_t displaySensor= {0};
 static int32_t temperatureSensor_gpio=1 ;
 static struct device_t weightSensor= {0};
@@ -47,8 +47,16 @@ static struct device_t weightSensor= {0};
 static pthread_mutex_t weight_mutex;
 static pthread_mutex_t temperature_mutex; 
 
-double current_weight=-1,current_temperature=-1,EmptykegWeight=-1,FullkegWeight=-1;
-// custom single handler for SIGINT, turns off the LEDs, turns off buzzer, and raises train crossing 
+// shared variables
+double current_weight=-1;
+double current_temperature=-1;
+// user inputted values obtained during the initialization of the system
+// used to compute the % of beer remaining in the keg
+double EmptykegWeight=-1;
+double FullkegWeight=-1;
+
+// custom single handler for SIGINT
+// for proper system shutdown
 static void handler(int32_t sig) {
     int32_t i;
     int32_t result;
@@ -73,33 +81,35 @@ int main(){
     int32_t keg_weight_flag=-1;
     int32_t result = 0;
     struct sigaction sa = {0};
+
      // Install Signal Handler for SIGINT
     sa.sa_handler = handler;
     result = sigaction(signal_num, &sa, (void *) ((int32_t) 0));
    
     if (result == 0) {
-            printf("Enter GPIO Input for Weight Sensor: \n");
-
+        // prompt and obtain input from the user for the gpiopins to be used for the weight sensor
+        printf("Enter GPIO Input for Weight Sensor: \n");
         //function to ask for dislayScreen motor and piezo motor input 
         weight_flag= promptUserForGPIOS(&weightSensor,0);
 
         if (weight_flag==0) {
+            // prompt and obtain input from the user for the gpio pin to be used for the temperature sensor
             printf("Enter GPIO Input for Temperature Sensor: \n");
             temp_flag = promptUserForGPIOS(NULL, &temperatureSensor_gpio);
 
-
             if(temp_flag==0){
+                // prompt the user for calibration values utilized in the computation of the % Beer Remaining
                 printf("Enter weight of Empty KEG: \n");
                 keg_weight_flag=  promptUserForkegWeight(&EmptykegWeight);
 
                 if(keg_weight_flag==0){
-                printf("Enter weight of full KEG: \n");
-                keg_weight_flag=  promptUserForkegWeight(&FullkegWeight);
-            }
+                    printf("Enter weight of full KEG: \n");
+                    keg_weight_flag=  promptUserForkegWeight(&FullkegWeight);
+                }
             }
         }
         
-
+        // check if the initialization was successful
         if (weight_flag == 0 && temp_flag==0) {
             printf("Weight Sensor GPIOs- %d, %d\n",weightSensor.gpio_numbers[0],weightSensor.gpio_numbers[1]);
             printf("Temperature GPIO- %d\n", temperatureSensor_gpio);
@@ -108,7 +118,6 @@ int main(){
             printf("Input module SUCCESSFULL\n");
             printf("\n");
             printf("\n");
-
         } else {
             printf("INPUT module Failed\n");
             printf("\n");
@@ -116,20 +125,23 @@ int main(){
             exit(0);
         }
 
-   
     device_flag = -1;
 
+    // initialize the gpio pins utilized for the weight sensor
+    // currently this code won't do anything besides setting the inputted gpios to receive input 
+    // due to the weight sensor being unsuccessfully implemented
     device_flag = initializeSensors(&weightSensor);
     printf("weight init with %d\n",device_flag);
+
     if (device_flag == 0) {
            // i2c_init();
-    }else{
+    } else {
         printf("Device flag is not 0 \n");
     }
 
-
     // checks if the initialization of all devices was successful
     if (device_flag == 0) {
+        // starts the system
         if (start_system() == 1){
             printf("EXITING CODE");
         }
@@ -138,6 +150,11 @@ int main(){
   return 0;
 }
 
+// prompts the user for the gpios associated with a specific device
+// for devices that require two gpios, provide a pointer to the device_t struct
+// that stores the gpios. in the case where a device only requires one gpio
+// (such as the temperature sensor), provide a NULL argument for the devices and
+// a pointer to the int variable that will store the gpio value
 static int32_t promptUserForGPIOS(struct device_t *devices, int32_t *isTemp){
    char buffer[MAX_BUFFER_SIZE] = {0};
     // used to check if fgets was successful
@@ -147,23 +164,22 @@ static int32_t promptUserForGPIOS(struct device_t *devices, int32_t *isTemp){
     int32_t result = 1;
    
     for( int32_t i=0; i<NUM_VALID_DEVICES; i++){
-        
-
         // note: fgets + sscanf used instead of scanf for memory safety
         fgets_flag = fgets((char *) buffer, MAX_BUFFER_SIZE, stdin);
 
         if (fgets_flag != NULL) {
             printf("Enter GPIO: \n");
+            // for when you need one gpio for a device
              if(devices==NULL && isTemp){
                 sscanf_flag = sscanf(buffer, "%d", isTemp);
-                printf("temp GPIO Input recorded: %d \n",*isTemp);
+                printf("temp GPIO Input recorded: %d \n", *isTemp);
                  if (sscanf_flag == 1) {
                     result = 0;
                 }
                 break;
             }else{
                 sscanf_flag = sscanf(buffer, "%d", &devices->gpio_numbers[i]);
-                printf("GPIO Input recorded: %d \n",devices->gpio_numbers[i]);
+                printf("GPIO Input recorded: %d \n", devices->gpio_numbers[i]);
             }
           
             if (sscanf_flag == 1) {
@@ -178,7 +194,7 @@ static int32_t promptUserForGPIOS(struct device_t *devices, int32_t *isTemp){
 }
 
 
-
+// retrieves input from the user regarding the weight of the keg
 static int32_t promptUserForkegWeight(double *kegWeight){
    char buffer[MAX_BUFFER_SIZE] = {0};
     // used to check if fgets was successful
@@ -203,7 +219,10 @@ static int32_t promptUserForkegWeight(double *kegWeight){
 
     return result;
 }
-// used to initialize tempRatch (aka push buttons)
+
+// used to initialize the direction values of the weight sensor's GPIOs
+// note: this code will not currently impact the system due to the 
+// weight sensor not being able to be implemented
 static int32_t initializeSensors(struct device_t *devices) {
     int32_t j;
     int32_t cur_gpio_num;
@@ -246,6 +265,7 @@ static int32_t initializeSensors(struct device_t *devices) {
 }
 
 
+// write a value to the gpio's associated value file
 static int32_t writeGPIO(int32_t gpio_number, char *output) {
     FILE *fp = NULL;
     char path[MAX_BUFFER_SIZE] = {0};
@@ -279,6 +299,11 @@ static int32_t writeGPIO(int32_t gpio_number, char *output) {
     return result;
 }
 
+// read a value stored in a sensor's associated gpio value file
+// for temperature, the gpio associated with the temperature sensor
+// has been reconfigured to receive bus communication. 
+// thus, when reading the data from the temperature sensor we read 
+// data from the path to its associated file in the /sys/bus/ folders
 static double readGPIO(int32_t gpio_number, int32_t isTemp) {
     FILE *fp = NULL;
     char path[MAX_BUFFER_SIZE] = {0};
@@ -290,7 +315,7 @@ static double readGPIO(int32_t gpio_number, int32_t isTemp) {
     // open value file
         flag = snprintf(path, MAX_BUFFER_SIZE, "%sgpio%d/value", GPIO_Path, gpio_number);
     }else{
-           // open value file
+        // open value file
         flag = snprintf(path, MAX_BUFFER_SIZE, "%s/temp1_input", TEMP_PATH);
         //printf("Temp input is %s\n",path);
     }
@@ -333,6 +358,7 @@ static double readGPIO(int32_t gpio_number, int32_t isTemp) {
 // Code should provide for safe operation even if sensors are not detected in the correct order
 
 // static int32_t start_system(int32_t dislayScreen_port, int32_t alarm_port)
+
 static int32_t start_system()
 {
 
@@ -368,9 +394,13 @@ static int32_t start_system()
     // printf("Setting policy display -%d\n",display);
     // printf("Setting policy  wght -%d\n",wght);
     
-    param_temperature.sched_priority = 3; // Lower priority for tempR
-    param_display.sched_priority = 1;   // Higher priority for display device
-    param_weight.sched_priority = 2;   // Medium priority for wght lights
+    // param_temperature.sched_priority = 3; // Lower priority for tempR
+    // param_display.sched_priority = 1;   // Higher priority for display device
+    // param_weight.sched_priority = 2;   // Medium priority for wght lights
+
+    param_temperature.sched_priority = 1; // Lowest priority for tempR
+    param_display.sched_priority = 2;   // 2nd highest priority for display device
+    param_weight.sched_priority = 3;   // Highest priority for wght lights
 
     tempR= pthread_attr_setschedparam(&temperature_attr, &param_temperature);
     display=pthread_attr_setschedparam(&display_attr, &param_display);
@@ -419,9 +449,13 @@ static int32_t start_system()
     printf("cleaning up\n\n");
     return 1;
 }
+
+
 static double convertToPercentage(){
     pthread_mutex_lock(&weight_mutex);
-            double localWeight= current_weight;
+
+    double localWeight= current_weight;
+
     pthread_mutex_unlock(&weight_mutex);
     
     if(localWeight!=-1){
@@ -433,9 +467,9 @@ static double convertToPercentage(){
 }
 
 
-//10ms
-//The "reset" button zeros the counter.  This can be done regardless of whether the tempRatch is started or stopped.
-//time
+// code for thread for monitoring the temperature values from the temperature sensor.
+// period = 5 seconds
+// given lowest period due to utilizing RMS for priority scheduling algorithm
 static void *monitorTemperature(void * arg){
     struct timeval s,e;
 
@@ -459,14 +493,16 @@ static void *monitorTemperature(void * arg){
 }
 
 
-
+// code for thread for monitoring the weight values from the temperature sensor
+// currently not working, due to our group being unable to succesfully implement the weight sensor
+// period = 1 s
+// given the highest priority due it having the lowest period
 void *monitorWeight(void *arg) {
-        struct timeval s,e;
+    struct timeval s,e;
     pthread_t tid = pthread_self();
     printf("Process ID of modifyLED Thread is : %lu\n", tid);
     
     while (true) {
-             
         usleep(1000000);
           pthread_mutex_lock(&weight_mutex);
             current_weight=readGPIO(weightSensor.gpio_numbers[0],0);
@@ -476,10 +512,8 @@ void *monitorWeight(void *arg) {
     return NULL;
 }
 
-
-//While the tempRatch is started, you shall display the running time in seconds on your terminal display to a resolution of 100ms. 
-// When the tempRatch is stopped, the display shall show the time with a resolution of 10ms.
-//Terminal display must be updated every 100ms. 
+// code used by the display_device thread to update the values shown on the LCD 
+// Terminal display must be updated every 3 s. 
 void *modifyLED(void *arg) {
     pthread_t tid = pthread_self();
     printf("Process ID of modifyLED Thread is : %lu\n", tid);
@@ -496,12 +530,15 @@ void *modifyLED(void *arg) {
            localTemp= current_temperature;
         pthread_mutex_unlock(&temperature_mutex);
 
-        char *lines = (char *)malloc(100 * sizeof(char));
+        char *lines = (char *) malloc(100 * sizeof(char));
         snprintf(lines, 100, "Temp:%.00fC Wght:%.00f%%", localTemp, localWeight);
 
          // printf("lines- %s",lines);
          int32_t flag= i2c_msg(lines);
         //printf("Temperature- %.0lf , Quantity- %.0lf\% \n",localTemp,localWeight);
+
+        // added
+        free(lines);
     }
     i2c_stop();
     printf("Exiting THREAD modifyLED\n\n");

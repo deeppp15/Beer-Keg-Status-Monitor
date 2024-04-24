@@ -84,9 +84,9 @@ int main() {
         int i;
 
         // spin while DOUT is HIGH
-        printf("%X\n", *gpio_datain_addr & DOUT_BIT);
+        // printf("%X\n", *gpio_datain_addr & DOUT_BIT);
         while (*gpio_datain_addr & DOUT_BIT) {
-            printf("hello\n");
+            i++;
         }
 
         for (i = 0; i < 24; i++) {
