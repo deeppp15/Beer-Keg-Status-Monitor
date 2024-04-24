@@ -57,10 +57,11 @@ double FullkegWeight=-1;
 // custom single handler for SIGINT
 // for proper system shutdown
 static void handler(int32_t sig) {
-    i2c_stop();
+clearDisplay();    
+i2c_stop();
     // int32_t i;
     // int32_t result;
-    // printf("Caught Signal %d: Working on clean shutdown...\n", sig);
+     printf("Caught Signal %d: Working on clean shutdown...\n", sig);
 
     // // note: nothing down with error return values since shutting down anyways
     // for (i = 0; i < NUM_VALID_DEVICES; i++) {
@@ -461,6 +462,8 @@ static double convertToPercentage(){
     if(localWeight!=-1){
         localWeight= (localWeight-EmptykegWeight)/FullkegWeight;
         localWeight*=100;
+    }else{
+        return 0;
     }
 
     return localWeight;
@@ -531,14 +534,14 @@ void *modifyLED(void *arg) {
         pthread_mutex_unlock(&temperature_mutex);
 
         char *lines = (char *) malloc(100 * sizeof(char));
-        snprintf(lines, 100, "Temp:%.00fC Wght:%.00f%%", localTemp, localWeight);
+        snprintf(lines, 100, "Temp:%.00fC Wgt:%.00f%%", localTemp, localWeight);
 
          // printf("lines- %s",lines);
          int32_t flag= i2c_msg(lines);
         //printf("Temperature- %.0lf , Quantity- %.0lf\% \n",localTemp,localWeight);
 
         // added
-        free(lines);
+       free(lines);
     }
     i2c_stop();
     printf("Exiting THREAD modifyLED\n\n");
