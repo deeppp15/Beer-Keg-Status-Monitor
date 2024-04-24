@@ -13,11 +13,10 @@
 #define NUM_VALID_DEVICES 2
 #define MAX_BUFFER_SIZE 50
 
-
+// index 0 corresponds to the device's first gpio pin and 1 corresponds
+// to the device's second gpio pin
 struct device_t {
-    // index 0 corresponds to a first device and 1 to a second device
-    //Since most of the devices are in pairs of 2--> traffic lights , buttons
-     int32_t gpio_numbers[NUM_VALID_DEVICES];
+    int32_t gpio_numbers[NUM_VALID_DEVICES];
 };
 
 
@@ -36,38 +35,43 @@ static bool handleUnsafeOperations();
 static double readGPIO(int32_t gpio_number);
 static int32_t promptUserForkegWeight(double *kegWeight);
 static double convertToPercentage();
-// shared variables
 
+// shared variables
 static struct device_t displaySensor= {0};
 static struct device_t temperatureSensor= {0};
 static struct device_t weightSensor= {0};
+double current_weight = -1;
+double current_temperature = -1;
 
 // locks
 static pthread_mutex_t weight_mutex;
 static pthread_mutex_t temperature_mutex; 
 
-double current_weight=-1,current_temperature=-1,EmptykegWeight=-1,FullkegWeight=-1;
-// custom single handler for SIGINT, turns off the LEDs, turns off buzzer, and raises train crossing 
-static void handler(int32_t sig) {
-    
-    int32_t i;
-    int32_t result;
-    printf("Caught Signal %d: Working on clean shutdown...\n", sig);
+// user provided inputs for calibration to compute % Remaining Beer
+double EmptykegWeight = -1;
+double FullkegWeight = -1;
 
-    // note: nothing down with error return values since shutting down anyways
-    for (i = 0; i < NUM_VALID_DEVICES; i++) {
-        result = writeGPIO(temperatureSensor.gpio_numbers[i], "0");//EDIT HERE
-        if (result != 0) {
-            printf("Error occurred while attempting to turn off GPIO pin %d. Continuing with shutdown...\n", result);
-        }
-    }
-    exit(0);
-}
+// // TODO - update
+// // custom single handler for SIGINT, turns off the LEDs, turns off buzzer, and raises train crossing 
+// static void handler(int32_t sig) {
+//     int32_t i;
+//     int32_t result;
+//     printf("Caught Signal %d: Working on clean shutdown...\n", sig);
+
+//     // note: nothing down with error return values since shutting down anyways
+//     for (i = 0; i < NUM_VALID_DEVICES; i++) {
+//         result = writeGPIO(temperatureSensor.gpio_numbers[i], "0");//EDIT HERE
+//         if (result != 0) {
+//             printf("Error occurred while attempting to turn off GPIO pin %d. Continuing with shutdown...\n", result);
+//         }
+//     }
+//     exit(0);
+// }
 
 int main(){
-    int32_t display_flag=-1;
-    int32_t weight_flag=-1;
-    int32_t temp_flag=-1;
+    int32_t display_flag = -1;
+    int32_t weight_flag = -1;
+    int32_t temp_flag = -1;
     int32_t signal_num = SIGINT;
     int32_t device_flag = -1;
     int32_t keg_weight_flag=-1;
@@ -196,7 +200,7 @@ static int32_t promptUserForkegWeight(double *kegWeight){
 
     if (fgets_flag != NULL) {
         sscanf_flag = sscanf(buffer, "%lf", kegWeight);
-        printf("KEG Weight recorded: %.2lf \n",kegWeight);
+        printf("KEG Weight recorded: %.2lf \n", kegWeight);
 
         if (sscanf_flag == 1) {
             result = 0;
@@ -208,6 +212,7 @@ static int32_t promptUserForkegWeight(double *kegWeight){
 
     return result;
 }
+
 // used to initialize tempRatch (aka push buttons)
 static int32_t initializeSensors(struct device_t *devices) {
     int32_t j;
@@ -344,7 +349,7 @@ static int32_t start_system()
     wght= pthread_attr_init(&weight_attr);
 
     if(tempR || display || wght){
-    printf("Error initializing attributes\n\n");
+        printf("Error initializing attributes\n\n");
     }
 
    struct sched_param param_temperature, param_display, param_weight;
