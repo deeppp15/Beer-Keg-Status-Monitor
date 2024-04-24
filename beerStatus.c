@@ -16,7 +16,6 @@
 
 struct device_t {
     // index 0 corresponds to a first device and 1 to a second device
-    //Since most of the devices are in pairs of 2--> traffic lights , buttons
      int32_t gpio_numbers[NUM_VALID_DEVICES];
 };
 
@@ -58,17 +57,18 @@ double FullkegWeight=-1;
 // custom single handler for SIGINT
 // for proper system shutdown
 static void handler(int32_t sig) {
-    int32_t i;
-    int32_t result;
-    printf("Caught Signal %d: Working on clean shutdown...\n", sig);
+    i2c_stop();
+    // int32_t i;
+    // int32_t result;
+    // printf("Caught Signal %d: Working on clean shutdown...\n", sig);
 
-    // note: nothing down with error return values since shutting down anyways
-    for (i = 0; i < NUM_VALID_DEVICES; i++) {
-        result = writeGPIO(temperatureSensor_gpio, "0");//EDIT HERE
-        if (result != 0) {
-            printf("Error occurred while attempting to turn off GPIO pin %d. Continuing with shutdown...\n", result);
-        }
-    }
+    // // note: nothing down with error return values since shutting down anyways
+    // for (i = 0; i < NUM_VALID_DEVICES; i++) {
+    //     result = writeGPIO(temperatureSensor_gpio, "0");//EDIT HERE
+    //     if (result != 0) {
+    //         printf("Error occurred while attempting to turn off GPIO pin %d. Continuing with shutdown...\n", result);
+    //     }
+    // }
     exit(0);
 }
 
