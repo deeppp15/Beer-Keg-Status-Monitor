@@ -10,9 +10,9 @@
 #include <math.h>
 #include <sys/time.h>
 #include <sched.h>
+#include "lcd.h"
 #define NUM_VALID_DEVICES 2
-#define MAX_BUFFER_SIZE 50
-
+#define MAX_BUFFER_SIZE 100
 
 struct device_t {
     // index 0 corresponds to a first device and 1 to a second device
@@ -21,25 +21,26 @@ struct device_t {
 };
 
 
-static const char *GPIO_Path = (char *) "sys/class/gpio/";
+static const char *GPIO_Path = (char *) "/sys/class/gpio/";
+static const char *TEMP_PATH = (char *) "/sys/bus/w1/devices/28-2b46d446b48a/hwmon/hwmon0/";
 
 static void *modifyLED(void* arg);
 static void *monitorTemperature(void* arg);
 static void *monitorWeight(void* arg);
 
-static int32_t promptUserForGPIOS(struct device_t *devices);
+static int32_t promptUserForGPIOS(struct device_t *devices, int32_t * isTemp);
 static int32_t writeGPIO(int32_t gpio_number, char *output);
 static int32_t initializeDevices(struct device_t *devices);
 static int32_t initializeSensors(struct device_t *devices);
 static int32_t start_system();
 static bool handleUnsafeOperations();
-static double readGPIO(int32_t gpio_number);
-static int32_t promptUserForkegWeight(double *kegWeight);
+static double readGPIO(int32_t gpio_number, int32_t);
+static int32_t promptUserForkegWeight(double * kegWeight);
 static double convertToPercentage();
 // shared variables
 
 static struct device_t displaySensor= {0};
-static struct device_t temperatureSensor= {0};
+static int32_t temperatureSensor_gpio=1 ;
 static struct device_t weightSensor= {0};
 
 // locks
@@ -56,7 +57,7 @@ static void handler(int32_t sig) {
 
     // note: nothing down with error return values since shutting down anyways
     for (i = 0; i < NUM_VALID_DEVICES; i++) {
-        result = writeGPIO(temperatureSensor.gpio_numbers[i], "0");//EDIT HERE
+        result = writeGPIO(temperatureSensor_gpio, "0");//EDIT HERE
         if (result != 0) {
             printf("Error occurred while attempting to turn off GPIO pin %d. Continuing with shutdown...\n", result);
         }
@@ -73,9 +74,7 @@ int main(){
     int32_t keg_weight_flag=-1;
     int32_t result = 0;
     // struct sigaction sa = {0};
- 
-
-    // // Install Signal Handler for SIGINT
+     // // Install Signal Handler for SIGINT
     // sa.sa_handler = handler;
     // result = sigaction(signal_num, &sa, (void *) ((int32_t) 0));
    
@@ -83,36 +82,30 @@ int main(){
             printf("Enter GPIO Input for Weight Sensor: \n");
 
         //function to ask for dislayScreen motor and piezo motor input 
-        weight_flag=  promptUserForGPIOS(&weightSensor);
+        weight_flag= promptUserForGPIOS(&weightSensor,0);
 
         if (weight_flag==0) {
             printf("Enter GPIO Input for Temperature Sensor: \n");
-            temp_flag=  promptUserForGPIOS(&temperatureSensor);
+            temp_flag = promptUserForGPIOS(NULL, &temperatureSensor_gpio);
 
 
             if(temp_flag==0){
-                printf("Enter GPIO Input for LCD Sensor: \n");
-                display_flag=  promptUserForGPIOS(&displaySensor);
+                printf("Enter weight of Empty KEG: \n");
+                keg_weight_flag=  promptUserForkegWeight(&EmptykegWeight);
 
-                if(display_flag==0){
-                    printf("Enter weight of Empty KEG: \n");
-                    keg_weight_flag=  promptUserForkegWeight(&EmptykegWeight);
-
-                    if(keg_weight_flag==0){
-                    printf("Enter weight of full KEG: \n");
-                    keg_weight_flag=  promptUserForkegWeight(&FullkegWeight);
-                }
-                }
+                if(keg_weight_flag==0){
+                printf("Enter weight of full KEG: \n");
+                keg_weight_flag=  promptUserForkegWeight(&FullkegWeight);
+            }
             }
         }
         
 
         if (weight_flag == 0 && temp_flag==0) {
             printf("Weight Sensor GPIOs- %d, %d\n",weightSensor.gpio_numbers[0],weightSensor.gpio_numbers[1]);
-            printf("Temperature GPIO- %d, %d\n", temperatureSensor.gpio_numbers[0], temperatureSensor.gpio_numbers[1]);
-            printf("Display GPIO- %d , %d \n",displaySensor.gpio_numbers[0], displaySensor.gpio_numbers[1]);
-            printf("Empty Keg is %.2lf\n\n", EmptykegWeight);
-            printf("Full Keg is %.2lf\n\n", FullkegWeight);
+            printf("Temperature GPIO- %d\n", temperatureSensor_gpio);
+            printf("Empty Keg is %.0lf\n\n", EmptykegWeight);
+            printf("Full Keg is %.0lf\n\n", FullkegWeight);
             printf("Input module SUCCESSFULL\n");
             printf("\n");
             printf("\n");
@@ -128,15 +121,9 @@ int main(){
     device_flag = -1;
 
     device_flag = initializeSensors(&weightSensor);
+    printf("weight init with %d\n",device_flag);
     if (device_flag == 0) {
-            device_flag = -1;
-            // initializes GPIOs used for the left watchy
-            device_flag = initializeSensors(&temperatureSensor);
-            if (device_flag == 0) {
-                device_flag = -1;
-                // initializes GPIOs used for the left watchy
-                device_flag = initializeSensors(&displaySensor);
-            }
+           // i2c_init();
     }else{
         printf("Device flag is not 0 \n");
     }
@@ -152,14 +139,14 @@ int main(){
   return 0;
 }
 
-static int32_t promptUserForGPIOS(struct device_t *devices){
+static int32_t promptUserForGPIOS(struct device_t *devices, int32_t *isTemp){
    char buffer[MAX_BUFFER_SIZE] = {0};
     // used to check if fgets was successful
     char *fgets_flag = NULL;
     // used to check if sscanf was successful
     int32_t sscanf_flag = EOF;
     int32_t result = 1;
-    
+   
     for( int32_t i=0; i<NUM_VALID_DEVICES; i++){
         
 
@@ -168,9 +155,18 @@ static int32_t promptUserForGPIOS(struct device_t *devices){
 
         if (fgets_flag != NULL) {
             printf("Enter GPIO: \n");
-            sscanf_flag = sscanf(buffer, "%d", &devices->gpio_numbers[i]);
-            printf("GPIO Input recorded: %d \n",devices->gpio_numbers[i]);
-
+             if(devices==NULL && isTemp){
+                sscanf_flag = sscanf(buffer, "%d", isTemp);
+                printf("temp GPIO Input recorded: %d \n",*isTemp);
+                 if (sscanf_flag == 1) {
+                    result = 0;
+                }
+                break;
+            }else{
+                sscanf_flag = sscanf(buffer, "%d", &devices->gpio_numbers[i]);
+                printf("GPIO Input recorded: %d \n",devices->gpio_numbers[i]);
+            }
+          
             if (sscanf_flag == 1) {
                 result = 0;
             }
@@ -196,7 +192,7 @@ static int32_t promptUserForkegWeight(double *kegWeight){
 
     if (fgets_flag != NULL) {
         sscanf_flag = sscanf(buffer, "%lf", kegWeight);
-        printf("KEG Weight recorded: %.2lf \n",kegWeight);
+        printf("KEG Weight recorded: %.2lf \n",*kegWeight);
 
         if (sscanf_flag == 1) {
             result = 0;
@@ -222,8 +218,8 @@ static int32_t initializeSensors(struct device_t *devices) {
         result = cur_gpio_num;
 
         // open direction file
-        flag = snprintf(direction_path, MAX_BUFFER_SIZE, "%sgpio%d/direction.txt", GPIO_Path, cur_gpio_num);
-
+        flag = snprintf(direction_path, MAX_BUFFER_SIZE, "%sgpio%d/direction", GPIO_Path, cur_gpio_num);
+        printf("weight path - %s\n",direction_path);
         // check that no error occurred during the writing of direction_path
         if (flag >= 0) {
             fp = fopen(direction_path, "w");
@@ -258,7 +254,7 @@ static int32_t writeGPIO(int32_t gpio_number, char *output) {
     int32_t flag = 0;
 
     // open value file
-    flag = snprintf(path, MAX_BUFFER_SIZE, "%sgpio%d/value.txt", GPIO_Path, gpio_number);
+    flag = snprintf(path, MAX_BUFFER_SIZE, "%sgpio%d/value", GPIO_Path, gpio_number);
 
     // check that no errors occurred while writing to path
     if (flag >= 0) {
@@ -284,16 +280,22 @@ static int32_t writeGPIO(int32_t gpio_number, char *output) {
     return result;
 }
 
-static double readGPIO(int32_t gpio_number) {
+static double readGPIO(int32_t gpio_number, int32_t isTemp) {
     FILE *fp = NULL;
     char path[MAX_BUFFER_SIZE] = {0};
     int32_t flag = -1;
     double result = -1;
     char value[60];
     char buffer[MAX_BUFFER_SIZE] = {0};
-
+    if(!isTemp){
     // open value file
-    flag = snprintf(path, MAX_BUFFER_SIZE, "%sgpio%d/value.txt", GPIO_Path, gpio_number);
+        flag = snprintf(path, MAX_BUFFER_SIZE, "%sgpio%d/value", GPIO_Path, gpio_number);
+    }else{
+           // open value file
+        flag = snprintf(path, MAX_BUFFER_SIZE, "%s/temp1_input", TEMP_PATH);
+        //printf("Temp input is %s\n",path);
+    }
+ 
     // check that path was correctly written to
     if (flag >= 0) {
         fp = fopen(path, "r");
@@ -344,7 +346,7 @@ static int32_t start_system()
     wght= pthread_attr_init(&weight_attr);
 
     if(tempR || display || wght){
-    printf("Error initializing attributes\n\n");
+        printf("Error initializing attributes\n\n");
     }
 
    struct sched_param param_temperature, param_display, param_weight;
@@ -354,18 +356,18 @@ static int32_t start_system()
     wght=pthread_attr_getschedparam(&weight_attr, &param_weight);
     
     
-    printf("Getting schedular params  tempR -%d\n",tempR);
-    printf("Getting schedular params  display -%d\n",display);
-    printf("Getting schedular params  wght -%d\n",wght);
+    // printf("Getting schedular params  tempR -%d\n",tempR);
+    // printf("Getting schedular params  display -%d\n",display);
+    // printf("Getting schedular params  wght -%d\n",wght);
 
 
     tempR = pthread_attr_setschedpolicy(&temperature_attr, SCHED_FIFO);
     display = pthread_attr_setschedpolicy(&display_attr, SCHED_FIFO);
     wght = pthread_attr_setschedpolicy(&weight_attr, SCHED_FIFO);
     
-    printf("Setting policy  tempR -%d\n",tempR);
-    printf("Setting policy display -%d\n",display);
-    printf("Setting policy  wght -%d\n",wght);
+    // printf("Setting policy  tempR -%d\n",tempR);
+    // printf("Setting policy display -%d\n",display);
+    // printf("Setting policy  wght -%d\n",wght);
     
     param_temperature.sched_priority = 3; // Lower priority for tempR
     param_display.sched_priority = 1;   // Higher priority for display device
@@ -375,9 +377,9 @@ static int32_t start_system()
     display=pthread_attr_setschedparam(&display_attr, &param_display);
     wght=pthread_attr_setschedparam(&weight_attr, &param_weight);
     
-    printf("setting schedular params  tempR -%d\n",tempR);
-    printf("setting schedular params  display -%d\n",display);
-    printf("setting schedular params  wght -%d\n",wght);    
+    // printf("setting schedular params  tempR -%d\n",tempR);
+    // printf("setting schedular params  display -%d\n",display);
+    // printf("setting schedular params  wght -%d\n",wght);    
  
     
     pthread_t temperature_device,display_device, weight_device;
@@ -443,10 +445,13 @@ static void *monitorTemperature(void * arg){
     struct timeval start_time, current_time;
     bool resetEvent=false;
 
+    //clearDisplay();
+
     while(true){
         usleep(5000000);
+        
         pthread_mutex_lock(&temperature_mutex);
-            current_temperature=readGPIO(temperatureSensor.gpio_numbers[0]);
+            current_temperature=readGPIO(temperatureSensor_gpio,1)/1000;
         pthread_mutex_unlock(&temperature_mutex);
     }
 
@@ -465,7 +470,7 @@ void *monitorWeight(void *arg) {
              
         usleep(1000000);
           pthread_mutex_lock(&weight_mutex);
-            current_weight=readGPIO(weightSensor.gpio_numbers[0]);
+            current_weight=readGPIO(weightSensor.gpio_numbers[0],0);
         pthread_mutex_unlock(&weight_mutex);
     }
     printf("Exiting THREAD modifyLED\n\n");
@@ -481,6 +486,7 @@ void *modifyLED(void *arg) {
     printf("Process ID of modifyLED Thread is : %lu\n", tid);
     double localTemp=-1,localWeight=-1;
     char *lines[100];
+    i2c_init();
     while (true) {
         
         usleep(3000000);    
@@ -492,10 +498,13 @@ void *modifyLED(void *arg) {
         pthread_mutex_unlock(&temperature_mutex);
 
         char *lines = (char *)malloc(100 * sizeof(char));
-        snprintf(lines, 100, "Temperature: %.2lf C, Quantity: %.2lf%%\n", localTemp, localWeight);
-        int32_t flag= writeGPIO(displaySensor.gpio_numbers[0],lines);
-        //printf("Temperature- %.2lf , Quantity- %.2lf\% \n",localTemp,localWeight);
+        snprintf(lines, 100, "Temp:%.00fC Wght:%.00f%%", localTemp, localWeight);
+
+         // printf("lines- %s",lines);
+         int32_t flag= i2c_msg(lines);
+        //printf("Temperature- %.0lf , Quantity- %.0lf\% \n",localTemp,localWeight);
     }
+    i2c_stop();
     printf("Exiting THREAD modifyLED\n\n");
     return NULL;
 }
