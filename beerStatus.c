@@ -86,7 +86,15 @@ int main(){
      // Install Signal Handler for SIGINT
     sa.sa_handler = handler;
     result = sigaction(signal_num, &sa, (void *) ((int32_t) 0));
-   
+    struct utsname unameData;
+
+    if (uname(&unameData) != 0) {
+        perror("uname");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("%s %s %s %s %s\n", unameData.sysname, unameData.nodename, unameData.release, unameData.version, unameData.machine);
+    sleep(5);
     if (result == 0) {
         // prompt and obtain input from the user for the gpiopins to be used for the weight sensor
         printf("Enter GPIO Input for Weight Sensor: \n");
@@ -547,5 +555,3 @@ void *modifyLED(void *arg) {
     printf("Exiting THREAD modifyLED\n\n");
     return NULL;
 }
-
-
